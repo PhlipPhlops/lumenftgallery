@@ -14,10 +14,19 @@ function sineBetween(min: number, max: number, t: number) {
     return min + halfRange + Math.sin(t / 100) * halfRange;
 }
 
-export const MovingNFT: React.FC<{nft: ObjectState, videoConf: VideoConfig}> = ({nft, videoConf}) => {
-	const w = nft.w * videoConf.width + 'px',
-			  h = nft.h * videoConf.height + 'px'
 
+export const MovingNFT: React.FC<{nft: ObjectState, videoConf: VideoConfig}> = ({nft, videoConf}) => {
+	const vW = videoConf.width,
+				vH = videoConf.height
+
+	// w and h are percentages of the screen width/height respectively, range 0..1
+	const w = nft.w * vW + 'px',
+			  h = nft.h * vH + 'px'
+
+	// y and x are percentages of the TOTAL RENDERABLE AREA
+	// Which is the size of the screen plus padding to account for the largest width
+	const l = (nft.x * (vW + (2*SQUARE_LENGTH))) - SQUARE_LENGTH,
+				t = (nft.y * (vH + (2*SQUARE_LENGTH))) - SQUARE_LENGTH
 
 	return (
 		<GlowBox
@@ -26,8 +35,8 @@ export const MovingNFT: React.FC<{nft: ObjectState, videoConf: VideoConfig}> = (
 				position: 'absolute',
 				width: w,
 				height: h,
-				top: nft.y * videoConf.height,
-				left: nft.x * videoConf.width,
+				top: t,
+				left: l,
 			}}
 		>
 			{nft.source.endsWith('.mp4') ?
@@ -53,6 +62,7 @@ export const MovingNFT: React.FC<{nft: ObjectState, videoConf: VideoConfig}> = (
 	)
 }
 
+
 const GlowBox = styled.div`
 	border-radius: 10px;
 	z-index: -1;
@@ -69,12 +79,14 @@ const GlowBox = styled.div`
 		0 0 102px ${props => props.color},
 		0 0 151px ${props => props.color};
 `
-// #0fa
+
 
 interface ObjectState {
 	source: string,
 	x: number,
 	y: number,
+	xStart: number,
+	yStart: number,
 	xVel: number, 
 	yVel: number,
 	w: number,
@@ -110,13 +122,22 @@ function setup(videoConfig: VideoConfig) {
 			random(seed + 7),
 		]
 
-		const xVelAbs = r[6] * 0.01 + 0.001
-		const yVelAbs = r[7] * 0.01 + 0.001
+		// By decision, we'll use the 8 2:1 (rise:run) angles
+		// Velocity and x value are percentages of the screen width and height
+		let [xVelAbs, yVelAbs] = r[6] < 0.5 ? [.002, .001] : [.001, .002]
+		// let [xVelAbs, yVelAbs] = r[6] < 0.5 ? [.0002, .0001] : [.0001, .0002]
+		if (r[7] < 0.5) {
+			// Randomly double the speed
+			xVelAbs = 2 * xVelAbs
+			yVelAbs = 2 * yVelAbs
+		}
 
 		return {
 			source: nftPath,
 			x: r[0],
 			y: r[1],
+			xStart: r[0],
+			yStart: r[1],
 			xVel: r[2] < 0.5 ? xVelAbs : -xVelAbs,
 			yVel: r[3] < 0.5 ? yVelAbs : -yVelAbs,
 			w: SQUARE_LENGTH / videoConfig.width,
@@ -125,44 +146,34 @@ function setup(videoConfig: VideoConfig) {
 			tOffset: Math.floor(r[5] * 1000)
 		}
 	})
-
-	// const tempObjStates: ObjectState[] = Squishiverse_Vids.map((vid) => {
-	// 	return {
-	// 		source: vid,
-	// 		x: Math.random(),
-	// 		y: Math.random(),
-	// 		xVel: Math.random() < 0.5 ? 0.002 : -0.002,
-	// 		yVel: Math.random() < 0.5 ? 0.002 : -0.002,
-	// 		w: SQUARE_LENGTH / videoConfig.width,
-	// 		h: SQUARE_LENGTH / videoConfig.height,
-	// 		color: COLORS[Math.floor(Math.random() * COLORS.length)],
-	// 		tOffset: Math.floor(Math.random() * 1000)
-	// 	}
-	// })
-
-	// ObjectStates = [...ObjectStates, ...tempObjStates]
 }
 
 /**
  * Run on every frame; updates the value of ObjectStates[]
  */
-function update(videoConfig: VideoConfig, t: number) {
+function update(videoConfig: VideoConfig, frame: number) {
+	const vW = videoConfig.width,
+				vH = videoConfig.height
+
+	const MAX_W = SQUARE_LENGTH / (vW),
+				MIN_W = SQUARE_LENGTH / (vW * 1.5),
+				MAX_H = SQUARE_LENGTH / (vH),
+				MIN_H = SQUARE_LENGTH / (vH * 1.5)
 
 	ObjectStates.forEach((nft: ObjectState, ind, origArr) => {
-		nft.w = sineBetween(SQUARE_LENGTH / (videoConfig.width * 2), SQUARE_LENGTH / videoConfig.width, t + nft.tOffset)
-		nft.h = sineBetween(SQUARE_LENGTH / (videoConfig.height * 2), SQUARE_LENGTH / videoConfig.height, t + nft.tOffset)
+		nft.w = sineBetween(MIN_W, MAX_W, frame + nft.tOffset)
+		nft.h = sineBetween(MIN_H, MAX_H, frame + nft.tOffset)
 
 		// Update the position based on velocity
-		nft.x = nft.x + nft.xVel
-		nft.y = nft.y + nft.yVel
-
-		// If the image runs off the screen (all the way), move it to the other side
-		// Right and left edges
-		if (nft.x > 1) nft.x = 0 - nft.w
-		if (nft.x + nft.w < 0) nft.x = 1
-		// Top and bottom edges
-		if (nft.y > 1) nft.y = 0 - nft.h
-		if (nft.y + nft.h < 0) nft.y = 1
+		// x, y and xVel, yVel are percentages of total renderable area between 0..1
+		nft.x = (nft.xStart + (frame * nft.xVel)) % 1
+		if (nft.x < 0) {
+			nft.x = 1 - Math.abs(nft.x)
+		}
+		nft.y = (nft.yStart + (frame * nft.yVel)) % 1
+		if (nft.y < 0) {
+			nft.y = 1 - Math.abs(nft.y)
+		}
 
 		// Update object in the rendered array
 		origArr[ind] = nft
@@ -174,16 +185,12 @@ function update(videoConfig: VideoConfig, t: number) {
 export const ProjectorRender: React.FC<{ /** props */ }> = () => {
 	const frame = useCurrentFrame(); // Enable this line to force method to update every frame
 	const videoConfig = useVideoConfig();
-	// 			durationInFrames={150}
-	// 			fps={30}
-	// 			width={1920}
-	// 			height={1080}
 
 	useEffect(() => {
 		setup(videoConfig)
 	}, [videoConfig]) // Only re-runs if videoConfig changes (it won't)
 
-	update(videoConfig, frame) // Call updatd every time ProjectorRender is rendered (every frame)
+	update(videoConfig, frame) // Call update every time ProjectorRender is rendered (every frame)
 
 
 	return (
@@ -223,15 +230,3 @@ export const ProjectorRender: React.FC<{ /** props */ }> = () => {
 	);
 };
 
-
-/**
- * 
- * 
- * Right now images pop up randomly around the page. Their x-y coordinates are 
- * passed in randomly by the setup function.
- * I want the setup function to have the video width and length
- * So I'm passing it in via hook
- * 
- * 
- * 
- */

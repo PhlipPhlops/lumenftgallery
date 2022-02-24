@@ -8,7 +8,7 @@ export const RemotionVideo: React.FC = () => {
 				id="ProjectorRender"
 				component={ProjectorRender}
 				// durationInFrames={2 * 314}
-				durationInFrames={2 * 31}
+				durationInFrames={1000}
 				fps={30}
 				// Wall width are 1080H x 3000W
 				// height={1080}
